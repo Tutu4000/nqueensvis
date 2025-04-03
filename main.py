@@ -1,110 +1,30 @@
-import random
-import numpy as np
-from tabulate import tabulate
+"""
+N-Queens Problem Solver - Command Line Interface
+
+This module provides a command-line interface for running N-Queens experiments
+and collecting statistics on the genetic algorithm's performance.
+"""
+
 import time
 import os
+import argparse
+import numpy as np
 from datetime import datetime
-from typing import List, Tuple, Set, Optional
+from typing import List, Tuple
+from tabulate import tabulate
 
-def calculate_fitness(solution, N):
-    conflicts = 0
-    for i in range(N):
-        for j in range(i + 1, N):
-            # Coluna
-            if solution[i] == solution[j]:
-                conflicts += 1
-            # Diagonais
-            if abs(solution[i] - solution[j]) == abs(i - j):
-                conflicts += 1
-    return np.exp(-conflicts)
+from nqueens import run_experiment, calculate_fitness
 
-def crossover(parent1, parent2, N):
-    crossover_point = random.randint(1, N-2)
-    
-    child = [-1] * N
-    child[:crossover_point] = parent1[:crossover_point]
-    
-    # conjunto dos valores do pai 1 que ja estao no filho
-    used_values = set(child[:crossover_point])
-
-    j = 0
-    for i in range(crossover_point, N):
-        while j < N and parent2[j] in used_values:
-            j += 1
-        child[i] = parent2[j]
-        used_values.add(parent2[j])
-    return child
-
-def mutate(solution, N, mutation_rate):
-    if random.random() < mutation_rate:
-        i, j = random.sample(range(N), 2)
-        solution[i], solution[j] = solution[j], solution[i]
-    return solution
-
-# Torneio nao funciona com probabilidades q nem slides
-def select_parent(population, fitnesses):
-    tournament_size = 3
-    tournament = random.sample(list(enumerate(population)), tournament_size)
-    winner_idx = max(tournament, key=lambda x: fitnesses[x[0]])[0]
-    return population[winner_idx]
-
-def bad_population_repository(population, fitnesses):
-    return 0
-
-def run_experiment(N: int, population_size: int, generations: int, mutation_rate: float) -> Tuple[int, bool]:
-    population: List[List[int]] = [random.sample(range(N), N) for _ in range(population_size)]
-    
-    fitnesses: List[float] = [calculate_fitness(individual, N) for individual in population]
-    best_idx = np.argmax(fitnesses)
-    best_solution: List[int] = population[best_idx].copy()
-    best_fitness: float = fitnesses[best_idx]
-    
-    solution_found = best_fitness == 1.0
-    generation = 0
-    
-    while not solution_found and generation < generations:
-        new_population = []
-        
-        # Elitismo melhor individuo sempre vai pra nova populacao
-        new_population.append(best_solution)
-        
-
-        while len(new_population) < population_size:
-            parent1 = select_parent(population, fitnesses)
-            parent2 = select_parent(population, fitnesses)
-            
-            child = crossover(parent1, parent2, N)
-            
-            child = mutate(child, N, mutation_rate)
-            
-            new_population.append(child)
-        
-        population = new_population
-        
-        fitnesses = [calculate_fitness(individual, N) for individual in population]
-        current_best_idx = np.argmax(fitnesses)
-        
-        if fitnesses[current_best_idx] > best_fitness:
-            best_solution = population[current_best_idx].copy()
-            best_fitness = fitnesses[current_best_idx]
-            
-        if best_fitness == 1.0:
-            solution_found = True
-        
-        generation += 1
-    
-    return generation, solution_found
-
-
-def save_results(results, filename):
+def save_results(results, filename, population_size, generations, mutation_rate, num_experiments):
+    """Save experiment results to a file."""
     with open(filename, 'w') as f:
-        f.write("Resultados\n")
+        f.write("N-Queens Genetic Algorithm Results\n")
         f.write("=" * 80 + "\n\n")
         f.write(f"Timestamp: {datetime.now().strftime('%d/%m/%Y, %H:%M:%S')}\n")
-        f.write(f"- Population size: {POPULATION_SIZE}\n")
-        f.write(f"- Max it: {GENERATIONS}\n")
-        f.write(f"- Mutation probability: {MUTATION_RATE}\n")
-        f.write(f"- Number of experiments per N: {NUM_EXPERIMENTS}\n\n")
+        f.write(f"- Population size: {population_size}\n")
+        f.write(f"- Maximum generations: {generations}\n")
+        f.write(f"- Mutation rate: {mutation_rate}\n")
+        f.write(f"- Number of experiments per N: {num_experiments}\n\n")
 
         f.write("Detailed results:\n")
         f.write("-" * 80 + "\n")
@@ -121,59 +41,103 @@ def save_results(results, filename):
         success_rates = [float(r[1].strip('%')) for r in results]
         avg_success = np.mean(success_rates)
         min_success = min(success_rates)
-        f.write(f"Average success: {avg_success:.1f}%\n")
-        f.write(f"Minimum success: {min_success:.1f}%\n")
+        f.write(f"Average success rate: {avg_success:.1f}%\n")
+        f.write(f"Minimum success rate: {min_success:.1f}%\n")
         
+def print_solution(solution, N):
+    """Print a readable representation of the solution."""
+    print("\nSolution:")
+    print("-" * (N * 2 + 1))
+    for row in range(N):
+        line = "|"
+        for col in range(N):
+            if solution[col] == row:
+                line += "Q|"
+            else:
+                line += " |"
+        print(line)
+    print("-" * (N * 2 + 1))
 
 def main():
-    global POPULATION_SIZE, GENERATIONS, MUTATION_RATE, NUM_EXPERIMENTS
-    POPULATION_SIZE = 100
-    GENERATIONS = 3000
-    MUTATION_RATE = 0.2
-    NUM_EXPERIMENTS = 10
-    NVALUES = range(8, 30)
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="N-Queens Genetic Algorithm")
+    parser.add_argument("--pop", type=int, default=100, help="Population size")
+    parser.add_argument("--gen", type=int, default=5000, help="Maximum generations")
+    parser.add_argument("--mut", type=float, default=0.2, help="Mutation rate")
+    parser.add_argument("--exp", type=int, default=10, help="Number of experiments per N")
+    parser.add_argument("--min", type=int, default=5, help="Minimum N to test")
+    parser.add_argument("--max", type=int, default=30, help="Maximum N to test")
+    parser.add_argument("--show", action="store_true", help="Show solution boards")
+    args = parser.parse_args()
     
-    results: List[Tuple[int, str, str, str]] = [] # "N", "Success rate", "Average generations", "Average time"
-    for N in NVALUES:
-        print(f"\nCurrent N = {N}")
-        iterations: List[int] = []
-        success_rate = 0
-        total_time = 0 
-        for experiments in range(NUM_EXPERIMENTS):
+    population_size = args.pop
+    generations = args.gen
+    mutation_rate = args.mut
+    num_experiments = args.exp
+    n_values = range(args.min, args.max + 1)
+    show_solutions = args.show
+    
+    print(f"Running N-Queens experiments with:")
+    print(f"- Population size: {population_size}")
+    print(f"- Maximum generations: {generations}")
+    print(f"- Mutation rate: {mutation_rate}")
+    print(f"- Number of experiments per N: {num_experiments}")
+    print(f"- Testing N values from {args.min} to {args.max}")
+    
+    results = []  # "N", "Success rate", "Average generations", "Average time"
+    
+    for N in n_values:
+        print(f"\nRunning experiments for N = {N}")
+        iterations = []
+        success_count = 0
+        total_time = 0
+        last_solution = None
+        
+        for experiment in range(num_experiments):
             start_time = time.time()
-            generations, found = run_experiment(N, POPULATION_SIZE, GENERATIONS, MUTATION_RATE)
+            generations_used, found, solution = run_experiment(N, population_size, generations, mutation_rate)
             end_time = time.time()
             execution_time = end_time - start_time
             
             if found:
-                success_rate += 1
-                iterations.append(generations)
+                success_count += 1
+                iterations.append(generations_used)
+                last_solution = solution
             
             total_time += execution_time
             
-            avg_iterations = np.mean(iterations)
-            success_percentage = (success_rate / (experiments + 1)) * 100
+            avg_iterations = np.mean(iterations) if iterations else 0
+            success_percentage = (success_count / (experiment + 1)) * 100
             
-            result_row: Tuple[int, str, str, str] = [
+            result_row = [
                 N,
                 f"{success_percentage:.1f}%",
-                f"{avg_iterations:.1f}",
-                f"{total_time/(experiments+1):.1f}s"
+                f"{avg_iterations:.1f}" if iterations else "N/A",
+                f"{total_time/(experiment+1):.1f}s"
             ]
             
+            # Update results if we already have an entry for this N
             if N in [r[0] for r in results]:
                 results[[r[0] for r in results].index(N)] = result_row
             else:
                 results.append(result_row)
-            print(f"Experiment {experiments + 1}/{NUM_EXPERIMENTS}: {'Success' if found else 'Failure'}")
-            print(f"Generations: {generations}, Time: {execution_time:.1f}s")
+                
+            print(f"  Experiment {experiment + 1}/{num_experiments}: {'Success' if found else 'Failure'}")
+            print(f"  Generations: {generations_used}, Time: {execution_time:.2f}s")
+        
+        # Show the last found solution for this N value if requested
+        if show_solutions and last_solution:
+            print_solution(last_solution, N)
+            print(f"Fitness: {calculate_fitness(last_solution, N)}")
 
     print("\nFinal results:")
     headers = ["N", "Success rate", "Average generations", "Average time"]
     print(tabulate(results, headers=headers, tablefmt="grid"))
 
+    # Save results to a file
     filename = f"resultados_n_rainhas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-    save_results(results, filename)
+    save_results(results, filename, population_size, generations, mutation_rate, num_experiments)
+    print(f"\nResults saved to {filename}")
 
 if __name__ == "__main__":
     main() 
