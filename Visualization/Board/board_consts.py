@@ -1,1 +1,0 @@
-SQUARE_SIZE = 60
